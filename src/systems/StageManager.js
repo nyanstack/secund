@@ -1,36 +1,61 @@
 import { Enemy } from '../objects/Enemy';
 
+const STAGE_CONFIG = {
+    1: { count: 2, spawnInterval: 1000 },
+    2: { count: 2, spawnInterval: 1000 }
+};
+
 export class StageManager {
     constructor(scene) {
         this.scene = scene;
         this.currentStage = 1;
         this.enemies = this.scene.physics.add.group();
         this.isStageClear = false;
+
+        // Spawn Queue State
+        this.enemiesToSpawn = 0;
+        this.spawnTimer = 0;
+        this.spawnInterval = 1000;
     }
 
     startStage(level) {
         this.currentStage = level;
         this.isStageClear = false;
-        this.spawnEnemies();
+
+        const config = STAGE_CONFIG[level] || { count: 3, spawnInterval: 2000 };
+        this.enemiesToSpawn = config.count;
+        this.spawnInterval = config.spawnInterval;
+        this.spawnTimer = 0;
+
+        console.log(`Starting Stage ${level}. Total Enemies: ${this.enemiesToSpawn}`);
     }
 
-    spawnEnemies() {
-        // Logic to spawn enemies based on stage config
-        if (this.currentStage === 1) {
-            // Stage 1: 1 Enemy? Or maybe 2? Prompt says "There is one enemy type... Each stage has 2 stages total". 
-            // "enemies spawn according to respawn rules".
-            // Let's spawn 1 enemy for Stage 1.
-            this.createEnemy();
-        } else if (this.currentStage === 2) {
-            // Stage 2: Maybe 2 enemies?
-            this.createEnemy();
-            this.createEnemy();
+    update(time, delta) {
+        if (this.isStageClear) return;
+
+        // Spawn Logic
+        if (this.enemiesToSpawn > 0) {
+            this.spawnTimer += delta;
+            if (this.spawnTimer >= this.spawnInterval) {
+                this.spawnTimer = 0;
+                this.createEnemy();
+                this.enemiesToSpawn--;
+                console.log(`Enemy Spawned. Remaining in queue: ${this.enemiesToSpawn}`);
+            }
         }
+
+        this.checkStageClear();
     }
 
     createEnemy() {
-        // Find valid spawn location
-        let x, y;
+        const point = this.getValidSpawnPoint();
+        const enemy = new Enemy(this.scene, point.x, point.y);
+        enemy.setTarget(this.scene.player);
+        this.enemies.add(enemy);
+    }
+
+    getValidSpawnPoint() {
+        let x = 0, y = 0;
         let valid = false;
         let attempts = 0;
 
@@ -39,58 +64,48 @@ export class StageManager {
             y = Phaser.Math.Between(100, 620);
             valid = true;
 
-            // Check obstacle overlap (approximate)
-            // We can check distance to all obstacles
+            // Check obstacle overlap (Strict Bounds Check)
+            const enemyBounds = new Phaser.Geom.Rectangle(x - 24, y - 24, 48, 48);
+
             if (this.scene.obstacles) {
-                this.scene.obstacles.getChildren().forEach(obs => {
-                    const dist = Phaser.Math.Distance.Between(x, y, obs.x, obs.y);
-                    if (dist < 80) valid = false; // 80 = (48/2 + max_obs_dim/2) mostly
-                });
+                const obstacles = this.scene.obstacles.getChildren();
+                for (const obs of obstacles) {
+                    const obsBounds = obs.getBounds();
+                    if (Phaser.Geom.Intersects.RectangleToRectangle(enemyBounds, obsBounds)) {
+                        valid = false;
+                        break;
+                    }
+                }
             }
 
             // Avoid player spawn area
-            if (Phaser.Math.Distance.Between(x, y, this.scene.player.x, this.scene.player.y) < 200) {
-                valid = false;
+            if (valid && this.scene.player) {
+                if (Phaser.Math.Distance.Between(x, y, this.scene.player.x, this.scene.player.y) < 200) {
+                    valid = false;
+                }
             }
 
             attempts++;
         }
 
-        const enemy = new Enemy(this.scene, x, y);
-        enemy.setTarget(this.scene.player);
-        this.enemies.add(enemy);
+        return valid ? { x, y } : { x: 100, y: 100 };
     }
 
     checkStageClear() {
         if (this.isStageClear) return;
 
-        // Count active enemies
-        const activeEnemies = this.enemies.countActive(true);
-        // We also need to know if any enemies are waiting to respawn.
-        // We can check if `enemies.children` contains any identifiable "dead but respawning" state, 
-        // or just track a counter of "total enemies to kill".
-        // The enemies remove themselves on final death.
-        // But `die()` hides them and waits.
-        // So `countActive(true)` might still return them if they are just invisible?
-        // `die()` sets visible false. `countActive(true)` usually counts visible/active ones.
-        // But let's be safer: check if group size is 0?
-        // Enemies calling `destroy()` effectively removes them.
+        // Win Condition: No active enemies AND no enemies waiting to spawn
+        // enemies.getLength() includes active and respawning enemies (since responsible for destroy() is on permanent death)
+        const activeCount = this.enemies.getLength();
 
-        const aliveOrRespawning = this.enemies.getChildren().some(e => !e.isDead || e.respawnsRemaining > 0);
-
-        if (!aliveOrRespawning) {
+        if (activeCount === 0 && this.enemiesToSpawn === 0) {
             this.isStageClear = true;
-            console.log('Stage Clear! Auto-advancing...');
+            console.log('Stage Clear! active: 0, queue: 0');
 
-            // Short delay before moving to next stage
             this.scene.time.delayedCall(1000, () => {
                 this.nextStage();
             });
         }
-    }
-
-    activateExitZone() {
-        // Deprecated: Auto-advance is now used.
     }
 
     nextStage() {

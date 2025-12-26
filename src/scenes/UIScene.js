@@ -12,7 +12,7 @@ export class UIScene extends Phaser.Scene {
     create() {
         // UI Overlay
         this.scoreText = this.add.text(20, 60, 'Score: 0', { fontSize: '32px', fill: '#ffffff' });
-        this.hpText = this.add.text(20, 100, 'HP: 10', { fontSize: '32px', fill: '#ff0000' });
+        this.hpText = this.add.text(20, 100, 'HP: 3', { fontSize: '32px', fill: '#ff0000' });
 
         this.activeText = this.add.text(20, 140, 'Active: 0', { fontSize: '24px', fill: '#aaa' });
         this.remainingText = this.add.text(20, 170, 'Remaining: 0', { fontSize: '24px', fill: '#aaa' });

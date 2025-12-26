@@ -36,9 +36,15 @@ export class GameScene extends Phaser.Scene {
                 this.registry.set('killed', k + 1);
             });
 
+            this.events.on('player-dead', () => {
+                console.log('GameScene: Player Died');
+                this.scene.stop('UIScene');
+                this.scene.start('DefeatScene');
+            });
+
             // Obstacles Layer
             this.obstacles = this.physics.add.staticGroup();
-            this.createRandomObstacles();
+            this.createGridObstacles();
 
             this.player = new Player(this, 100, 400);
             console.log('GameScene: Player created');
@@ -78,35 +84,153 @@ export class GameScene extends Phaser.Scene {
         }
     }
 
-    createRandomObstacles() {
-        // Simple random blocks
+    createGridObstacles() {
+        const GRID_SIZE = 64;
+        const COLS = Math.floor(1280 / GRID_SIZE); // 20
+        const ROWS = Math.floor(720 / GRID_SIZE); // 11
+        const SAFETY_COLS = 3; // Safe zone for player spawn
+
+        let validMap = false;
+        let attempts = 0;
+        let grid = [];
+
+        while (!validMap && attempts < 10) {
+            attempts++;
+            grid = [];
+            let obstacleCount = 0;
+            const targetObstacles = (COLS * ROWS) * 0.20; // 20% density target
+
+            // 1. Generate Random Grid
+            for (let y = 0; y < ROWS; y++) {
+                const row = [];
+                for (let x = 0; x < COLS; x++) {
+                    // Safety Check
+                    if (x < SAFETY_COLS) {
+                        row.push(0); // Empty
+                        continue;
+                    }
+
+                    // Random placement
+                    const isObstacle = Math.random() < 0.20;
+                    if (isObstacle) {
+                        row.push(1);
+                        obstacleCount++;
+                    } else {
+                        row.push(0);
+                    }
+                }
+                grid.push(row);
+            }
+
+            // 2. Validate Connectivity (Flood Fill)
+            if (this.validateMap(grid, COLS, ROWS)) {
+                validMap = true;
+                console.log(`Map Validated after ${attempts} attempts. Obstacles: ${obstacleCount}`);
+            }
+        }
+
+        if (!validMap) {
+            console.warn('Failed to generate valid map after 10 attempts. Using fallback (clearing heavy obstacles).');
+            // Heavy fallback: Clear center row to ensure passage
+            const midY = Math.floor(ROWS / 2);
+            for (let x = 0; x < COLS; x++) grid[midY][x] = 0;
+        }
+
+        // 3. Instantiate
         let totalArea = 0;
         const totalMapArea = 1280 * 720;
-        const targetArea = totalMapArea * 0.20; // 20% coverage
 
-        let attempts = 0;
-        while (totalArea < targetArea && attempts < 200) {
-            attempts++;
+        for (let y = 0; y < ROWS; y++) {
+            for (let x = 0; x < COLS; x++) {
+                if (grid[y][x] === 1) {
+                    const posX = x * GRID_SIZE + GRID_SIZE / 2;
+                    const posY = y * GRID_SIZE + GRID_SIZE / 2;
 
-            const x = Phaser.Math.Between(200, 1000);
-            const y = Phaser.Math.Between(100, 600);
-            const w = Phaser.Math.Between(30, 100);
-            const h = Phaser.Math.Between(30, 100);
-
-            // Check overlap with spawn (0-200 x)
-            if (x < 200) continue;
-
-            const obstacle = this.add.rectangle(x, y, w, h, 0x666666);
-            this.obstacles.add(obstacle);
-
-            totalArea += w * h;
+                    this.createCompositeBlock(posX, posY, GRID_SIZE);
+                    // Area calc is same (full block filled)
+                    totalArea += GRID_SIZE * GRID_SIZE;
+                }
+            }
         }
-        const percentage = ((totalArea / totalMapArea) * 100).toFixed(2);
 
-        // Emit stats
+        const percentage = ((totalArea / totalMapArea) * 100).toFixed(2);
         this.time.delayedCall(100, () => {
             this.events.emit('map-stats', percentage);
         });
+    }
+
+    createCompositeBlock(centerX, centerY, size) {
+        // Break block into 4x4 sub-tiles (16px each for 64px block)
+        const subSize = 16;
+        const tilesPerSide = size / subSize; // 4
+
+        // Start top-left relative to center
+        const startX = centerX - (size / 2) + (subSize / 2);
+        const startY = centerY - (size / 2) + (subSize / 2);
+
+        for (let r = 0; r < tilesPerSide; r++) {
+            for (let c = 0; c < tilesPerSide; c++) {
+                const tx = startX + c * subSize;
+                const ty = startY + r * subSize;
+
+                const tile = this.add.rectangle(tx, ty, subSize, subSize, 0x666666);
+
+                // Borders for visual clarity of bricks
+                tile.setStrokeStyle(1, 0x444444);
+
+                this.obstacles.add(tile);
+            }
+        }
+    }
+
+    validateMap(grid, cols, rows) {
+        // BFS to ensure all 0s are connected
+        // Find start point (first 0)
+        let startX = -1, startY = -1;
+        let emptyCount = 0;
+
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                if (grid[y][x] === 0) {
+                    if (startX === -1) {
+                        startX = x;
+                        startY = y;
+                    }
+                    emptyCount++;
+                }
+            }
+        }
+
+        if (startX === -1) return false; // Full map?
+
+        const queue = [{ x: startX, y: startY }];
+        const visited = new Set();
+        const key = (x, y) => `${x},${y}`;
+        visited.add(key(startX, startY));
+
+        let reachableCount = 0;
+
+        while (queue.length > 0) {
+            const current = queue.shift();
+            reachableCount++;
+
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of dirs) {
+                const nx = current.x + dx;
+                const ny = current.y + dy;
+
+                if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && grid[ny][nx] === 0) {
+                    const k = key(nx, ny);
+                    if (!visited.has(k)) {
+                        visited.add(k);
+                        queue.push({ x: nx, y: ny });
+                    }
+                }
+            }
+        }
+
+        // Valid if we reached every empty tile
+        return reachableCount === emptyCount;
     }
 
     update(time, delta) {
@@ -125,13 +249,16 @@ export class GameScene extends Phaser.Scene {
 
         // Collision logic here due to simple access
         // Player Bullet vs World
-        this.physics.world.collide(this.playerBullets, this.obstacles, (bullet) => {
+        this.physics.world.collide(this.playerBullets, this.obstacles, (bullet, obstacle) => {
             bullet.destroy();
+            obstacle.destroy();
+            // Optional: particle effect here
         });
 
         // Enemy Bullet vs World
-        this.physics.world.collide(this.enemyBullets, this.obstacles, (bullet) => {
+        this.physics.world.collide(this.enemyBullets, this.obstacles, (bullet, obstacle) => {
             bullet.destroy();
+            obstacle.destroy();
         });
 
         // Player Bullet vs Enemy
@@ -156,7 +283,7 @@ export class GameScene extends Phaser.Scene {
         });
 
         if (this.stageManager) {
-            this.stageManager.checkStageClear();
+            this.stageManager.update(time, delta);
 
             // Stats Tracking
             const enemies = this.stageManager.enemies;

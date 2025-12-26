@@ -14,7 +14,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         this.body.setSize(48, 48);
 
         // Stats
-        this.hp = 10;
+        this.hp = 3;
         this.speed = 160; // 160 is a reasonable speed, adjusting later if needed
         this.isInvulnerable = false;
 
@@ -154,7 +154,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         if (this.hp <= 0) {
             this.state = 'DEAD';
             this.setTint(0x555555);
-            // Game Over logic triggers here?
+            this.scene.events.emit('player-dead');
             return;
         }
 

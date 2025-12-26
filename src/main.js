@@ -8,6 +8,8 @@ import { UIScene } from './scenes/UIScene';
 import { StageClearScene } from './scenes/StageClearScene';
 import { EndingScene } from './scenes/EndingScene';
 
+import { DefeatScene } from './scenes/DefeatScene';
+
 const config = {
     type: Phaser.AUTO,
     width: 1280,
@@ -27,7 +29,8 @@ const config = {
         GameScene,
         UIScene,
         StageClearScene,
-        EndingScene
+        EndingScene,
+        DefeatScene
     ],
     pixelArt: false,
     scale: {

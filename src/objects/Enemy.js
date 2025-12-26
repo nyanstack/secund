@@ -14,10 +14,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.body.setSize(48, 48);
 
         // Stats
-        this.hp = 3; // Example HP
+        this.hp = 2; // Example HP
         this.speed = 160 * 0.65; // 0.65x Player speed
         this.damage = 1;
-        this.respawnsRemaining = 2; // "Respawns up to 2 times" means 3 lives total? "The 3rd death is permanent" implies: Spawn (1) -> Die -> Respawn (2) -> Die -> Respawn (3) -> Die -> Done. So 2 respawns.
+        this.respawnsRemaining = 1; // "Respawns up to 2 times" means 3 lives total? "The 3rd death is permanent" implies: Spawn (1) -> Die -> Respawn (2) -> Die -> Respawn (3) -> Die -> Done. So 2 respawns.
 
         this.attackRange = 400;
         this.target = null; // Reference to player
@@ -164,35 +164,24 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
             if (this.respawnsRemaining > 0) {
                 this.respawnsRemaining--;
-                this.scene.time.delayedCall(5000, () => {
+                this.scene.time.delayedCall(1000, () => {
                     this.respawn();
                 });
             } else {
+                this.scene.events.emit('enemy-permanently-defeated');
                 this.destroy(); // Permanently gone
             }
         });
     }
 
     respawn() {
-        // Use StageManager's logic if possible, or replicate "Find Safe Spot" logic
-        // For simplicity, let's just pick a random spot far from player
-        let x, y;
-        let valid = false;
-        let attempts = 0;
-
-        while (!valid && attempts < 20) {
-            x = Phaser.Math.Between(100, 1180);
-            y = Phaser.Math.Between(100, 620);
-            const dist = Phaser.Math.Distance.Between(x, y, this.target.x, this.target.y);
-            if (dist > 300) valid = true; // Minimum distance
-            attempts++;
-        }
-
-        this.setPosition(x, y);
+        // Use StageManager's logic for safe spawning
+        const point = this.scene.stageManager.getValidSpawnPoint();
+        this.setPosition(point.x, point.y);
         this.clearTint();
 
         this.isDead = false;
-        this.hp = 3;
+        this.hp = 2;
         this.setVisible(true);
         this.body.checkCollision.none = false;
 
