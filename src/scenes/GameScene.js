@@ -1,4 +1,4 @@
-import { Player } from '../objects/Player';
+import { SinglePlayer } from '../objects/SinglePlayer';
 import { CombatSystem } from '../systems/CombatSystem';
 import { StageManager } from '../systems/StageManager';
 import Phaser from 'phaser';
@@ -46,7 +46,7 @@ export class GameScene extends Phaser.Scene {
             this.obstacles = this.physics.add.staticGroup();
             this.createGridObstacles();
 
-            this.player = new Player(this, 100, 400);
+            this.player = new SinglePlayer(this, 100, 400);
             console.log('GameScene: Player created');
 
             // Setup Inputs

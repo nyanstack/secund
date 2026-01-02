@@ -9,6 +9,7 @@ import { StageClearScene } from './scenes/StageClearScene';
 import { EndingScene } from './scenes/EndingScene';
 
 import { DefeatScene } from './scenes/DefeatScene';
+import { MultiplayerGameScene } from './scenes/MultiplayerGameScene';
 
 const config = {
     type: Phaser.AUTO,
@@ -30,7 +31,8 @@ const config = {
         UIScene,
         StageClearScene,
         EndingScene,
-        DefeatScene
+        DefeatScene,
+        MultiplayerGameScene
     ],
     pixelArt: false,
     scale: {

@@ -14,10 +14,19 @@ export class MainMenu extends Phaser.Scene {
             color: '#ffffff'
         }).setOrigin(0.5);
 
-        const playButtonBg = this.add.rectangle(width / 2, height / 2 + 50, 200, 60, 0x000000)
+        const playButtonBg = this.add.rectangle(width / 2, height / 2 + 50, 300, 60, 0x000000)
             .setInteractive({ useHandCursor: true });
 
-        const playButtonText = this.add.text(width / 2, height / 2 + 50, 'PLAY', {
+        const playButtonText = this.add.text(width / 2, height / 2 + 50, 'SINGLE PLAYER', {
+            fontFamily: 'Arial',
+            fontSize: '32px',
+            color: '#00ff00'
+        }).setOrigin(0.5);
+
+        const mpButtonBg = this.add.rectangle(width / 2, height / 2 + 120, 300, 60, 0x000000)
+            .setInteractive({ useHandCursor: true });
+
+        const mpButtonText = this.add.text(width / 2, height / 2 + 120, 'MULTIPLAYER', {
             fontFamily: 'Arial',
             fontSize: '32px',
             color: '#00ff00'
@@ -42,13 +51,21 @@ export class MainMenu extends Phaser.Scene {
         playButtonBg.on('pointerover', () => playButtonText.setStyle({ fill: '#ff0' }));
         playButtonBg.on('pointerout', () => playButtonText.setStyle({ fill: '#0f0' }));
 
+        mpButtonBg.on('pointerdown', () => {
+            console.log('MainMenu: Multiplayer button clicked');
+            this.scene.start('MultiplayerGameScene');
+        });
+
+        mpButtonBg.on('pointerover', () => mpButtonText.setStyle({ fill: '#ff0' }));
+        mpButtonBg.on('pointerout', () => mpButtonText.setStyle({ fill: '#0f0' }));
+
         // Spacebar Start
         this.input.keyboard.once('keydown-SPACE', () => {
             console.log('MainMenu: Spacebar pressed');
             startGame();
         });
 
-        this.add.text(width / 2, height / 2 + 100, 'Press SPACE or Click to Start', {
+        this.add.text(width / 2, height / 2 + 190, 'Press SPACE or click Start Single Player', {
             fontSize: '16px',
             fill: '#888'
         }).setOrigin(0.5);
