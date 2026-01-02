@@ -45,15 +45,19 @@ export class GameServer {
             this.rooms.set(roomId, room);
             // Spawn initial enemies?
             this.spawnEnemies(room, 5);
+            // Generate obstacles immediately
+            room.obstacles = this.generateObstacles(room.seed);
         }
 
         // Init player
         room.players[socket.id] = new PlayerState(socket.id, 100 + Math.random() * 50, 400);
 
         // Send init data
+        // Send init data
         socket.emit('room-joined', {
             roomId: roomId,
             seed: room.seed,
+            obstacles: room.obstacles, // Send generated obstacles
             players: room.players // Send current players
         });
     }
@@ -153,8 +157,124 @@ export class GameServer {
                 r1.height + r1.y > r2.y;
         };
 
+        // Helper for Entity-Entity (Center-Center)
+        const resolveEntityCollision = (e1, e2) => {
+            const dx = e1.x - e2.x;
+            const dy = e1.y - e2.y;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+
+            // Combined sizes
+            const halfWidths = (e1.width / 2) + (e2.width / 2);
+            const halfHeights = (e1.height / 2) + (e2.height / 2);
+
+            if (absDx < halfWidths && absDy < halfHeights) {
+                const penX = halfWidths - absDx;
+                const penY = halfHeights - absDy;
+
+                if (penX < penY) {
+                    // Resolve X
+                    const push = penX / 2;
+                    if (dx > 0) {
+                        e1.x += push;
+                        e2.x -= push;
+                    } else {
+                        e1.x -= push;
+                        e2.x += push;
+                    }
+                } else {
+                    // Resolve Y
+                    const push = penY / 2;
+                    if (dy > 0) {
+                        e1.y += push;
+                        e2.y -= push;
+                    } else {
+                        e1.y -= push;
+                        e2.y += push;
+                    }
+                }
+            }
+        };
+
+        // Cache obstacles if not already done
+        if (!room.obstacles) {
+            room.obstacles = this.generateObstacles(room.seed);
+        }
+
+        // --- 1. Entity vs Obstacle Collisions ---
+
+        const resolveCollision = (entity, wall) => {
+            const halfWidthE = entity.width / 2;
+            const halfHeightE = entity.height / 2;
+            const halfWidthW = wall.width / 2;
+            const halfHeightW = wall.height / 2;
+
+            const centerEx = entity.x; // Entity x is center
+            const centerEy = entity.y; // Entity y is center
+            const centerWx = wall.x + halfWidthW; // Wall x is top-left
+            const centerWy = wall.y + halfHeightW; // Wall y is top-left
+
+            const dx = centerEx - centerWx;
+            const dy = centerEy - centerWy;
+
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+
+            // Calculate penetration
+            // if absDx < (halfWidthE + halfWidthW) -> collision on X
+            const penetrationX = (halfWidthE + halfWidthW) - absDx;
+            const penetrationY = (halfHeightE + halfHeightW) - absDy;
+
+            if (penetrationX < penetrationY) {
+                // Resolve X
+                if (dx > 0) entity.x += penetrationX;
+                else entity.x -= penetrationX;
+            } else {
+                // Resolve Y
+                if (dy > 0) entity.y += penetrationY;
+                else entity.y -= penetrationY;
+            }
+        };
+
+        // Players vs Obstacles
+        for (const p of Object.values(room.players)) {
+            if (p.dead) continue;
+            const pBounds = p.getBounds();
+            for (const wall of room.obstacles) {
+                if (rectOverlap(pBounds, wall)) {
+                    resolveCollision(p, wall);
+                }
+            }
+        }
+
+        // Enemies vs Obstacles
+        for (const e of Object.values(room.enemies)) {
+            if (!e.active) continue;
+            const eBounds = e.getBounds();
+            for (const wall of room.obstacles) {
+                if (rectOverlap(eBounds, wall)) {
+                    resolveCollision(e, wall);
+                }
+            }
+        }
+
+        // Bullets vs Obstacles
+        for (const b of room.bullets) {
+            if (!b.active) continue;
+            const bBounds = b.getBounds();
+            for (const wall of room.obstacles) {
+                if (rectOverlap(bBounds, wall)) {
+                    b.active = false;
+                    break;
+                }
+            }
+        }
+
+        // --- 2. Entity vs Entity Collisions ---
+
         // Bullets vs Enemies
         for (const b of room.bullets) {
+            if (!b.active) continue;
             if (b.type === 'player') {
                 const bBounds = b.getBounds();
                 for (const e of Object.values(room.enemies)) {
@@ -178,14 +298,70 @@ export class GameServer {
         // Enemies vs Players
         for (const e of Object.values(room.enemies)) {
             if (!e.active) continue;
-            const eBounds = e.getBounds();
+
             for (const p of Object.values(room.players)) {
                 if (p.dead) continue;
-                if (rectOverlap(eBounds, p.getBounds())) {
-                    p.takeDamage(1);
-                    // Push player back slightly?
+
+                // Use Center-Center resolution so BOTH get pushed apart
+                // This prevents the enemy from "bulldozing" the player and causing jitter
+                resolveEntityCollision(p, e);
+            }
+        }
+
+
+
+        // Enemies vs Enemies (Prevent Overlap)
+        const enemyList = Object.values(room.enemies);
+        for (let i = 0; i < enemyList.length; i++) {
+            const e1 = enemyList[i];
+            if (!e1.active) continue;
+
+            for (let j = i + 1; j < enemyList.length; j++) {
+                const e2 = enemyList[j];
+                if (!e2.active) continue;
+
+                resolveEntityCollision(e1, e2);
+            }
+        }
+    }
+
+    generateObstacles(seed) {
+        // Duplicate logic/constants from client for now
+        // Ideally share code (e.g. common/MapGenerator.js), but inline is faster for now.
+        const seededRandom = (s) => {
+            return function () {
+                s = Math.sin(s) * 10000;
+                return s - Math.floor(s);
+            };
+        };
+        const rng = seededRandom(seed);
+
+        const GRID_SIZE = 64;
+        const COLS = Math.floor(1280 / GRID_SIZE); // 20
+        const ROWS = Math.floor(720 / GRID_SIZE); // 11
+        const SAFETY_COLS = 3;
+
+        const obstacles = [];
+
+        for (let y = 0; y < ROWS; y++) {
+            for (let x = 0; x < COLS; x++) {
+                if (x < SAFETY_COLS) continue;
+
+                if (rng() < 0.20) {
+                    const posX = x * GRID_SIZE + GRID_SIZE / 2;
+                    const posY = y * GRID_SIZE + GRID_SIZE / 2;
+
+                    // Create bounding box for collision
+                    // Size is GRID_SIZE
+                    obstacles.push({
+                        x: posX - GRID_SIZE / 2,
+                        y: posY - GRID_SIZE / 2,
+                        width: GRID_SIZE,
+                        height: GRID_SIZE
+                    });
                 }
             }
         }
+        return obstacles;
     }
 }

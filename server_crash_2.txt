@@ -1,0 +1,15 @@
+Server running on port 3001
+Player connected: fmEwYjdUb-LwgHd9AAAB
+file:///D:/All%20Files/Antigravity/secund/server/GameServer.js:294
+                    if (m1 > 0) r1.y += sepDir * oy * (m2 / totalM);
+                                                            ^
+
+ReferenceError: totalM is not defined
+    at separate (file:///D:/All%20Files/Antigravity/secund/server/GameServer.js:294:61)
+    at GameServer.resolveOverlaps (file:///D:/All%20Files/Antigravity/secund/server/GameServer.js:306:17)
+    at GameServer.update (file:///D:/All%20Files/Antigravity/secund/server/GameServer.js:252:18)
+    at Timeout._onTimeout (file:///D:/All%20Files/Antigravity/secund/server/GameServer.js:28:32)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+
+Node.js v24.11.1

@@ -1,4 +1,3 @@
-
 import Phaser from 'phaser';
 import { SocketClient } from '../net/SocketClient';
 import { LocalPlayer } from '../objects/LocalPlayer';
@@ -14,28 +13,48 @@ export class MultiplayerGameScene extends Phaser.Scene {
 
         this.localPlayerId = null;
         this.mapGenerated = false;
+
+        // Physics group for walls
+        this.obstacles = null;
     }
 
     create() {
         console.log('MultiplayerGameScene: Starting...');
 
-        // 1. Connect
+        // 1. Setup UI (so it's ready for status updates)
+        this.statusText = this.add.text(10, 10, 'MULTIPLAYER MODE: Connecting...', { fontSize: '16px', fill: '#ffff00' });
+
+        // 2. Setup Inputs (so they are ready for player creation)
+        this.wasd = this.input.keyboard.addKeys({
+            up: Phaser.Input.Keyboard.KeyCodes.W,
+            down: Phaser.Input.Keyboard.KeyCodes.S,
+            left: Phaser.Input.Keyboard.KeyCodes.A,
+            right: Phaser.Input.Keyboard.KeyCodes.D
+        });
+
+        // 3. Setup Physics
+        this.obstacles = this.physics.add.staticGroup();
+        this.enemiesGroup = this.physics.add.group(); // Group for enemy bodies
+
+        // 4. Connect
         this.socket = new SocketClient();
-        this.socket.connect('http://localhost:3001'); // Assuming local dev
+        const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+        this.socket.connect(serverUrl);
 
         this.socket.on('connect', () => {
             console.log('Connected to server!');
+            this.statusText.setText('MULTIPLAYER MODE: Connected');
+            this.statusText.setFill('#00ff00');
             this.socket.joinRoom('default-room');
         });
 
         this.socket.on('room-joined', (data) => {
             console.log('Joined Room:', data);
             this.localPlayerId = this.socket.socket.id;
-            this.createGridObstacles(data.seed);
+            this.createObstaclesFromList(data.obstacles);
             this.mapGenerated = true;
 
-            // Spawn Existing Players (including self, initially as Remote? No, server sends all)
-            // Actually, for authoritative, we spawn LocalPlayer for self
+            // Spawn Existing Players
             this.updatePlayers(data.players);
         });
 
@@ -45,17 +64,6 @@ export class MultiplayerGameScene extends Phaser.Scene {
             this.updateEnemies(data.enemies);
             this.updateBullets(data.bullets);
         });
-
-        // Setup Inputs
-        this.wasd = this.input.keyboard.addKeys({
-            up: Phaser.Input.Keyboard.KeyCodes.W,
-            down: Phaser.Input.Keyboard.KeyCodes.S,
-            left: Phaser.Input.Keyboard.KeyCodes.A,
-            right: Phaser.Input.Keyboard.KeyCodes.D
-        });
-
-        // UI
-        this.add.text(10, 10, 'MULTIPLAYER MODE', { fontSize: '16px', fill: '#0f0' });
     }
 
     update(time, delta) {
@@ -93,6 +101,13 @@ export class MultiplayerGameScene extends Phaser.Scene {
             // Sync State
             if (id === this.localPlayerId) {
                 this.players[id].reconcile(data);
+
+                // Ensure Physics Collision with Static Group and Enemies
+                if (!this.players[id].hasCollider) {
+                    this.physics.add.collider(this.players[id], this.obstacles);
+                    this.physics.add.collider(this.players[id], this.enemiesGroup);
+                    this.players[id].hasCollider = true;
+                }
             } else {
                 this.players[id].updateState(data);
             }
@@ -111,8 +126,13 @@ export class MultiplayerGameScene extends Phaser.Scene {
         for (const id in serverEnemies) {
             const data = serverEnemies[id];
             if (!this.enemies[id]) {
-                this.enemies[id] = this.add.sprite(data.x, data.y, 'enemy');
-                this.enemies[id].setDisplaySize(48, 48);
+                const enemy = this.add.sprite(data.x, data.y, 'enemy');
+                enemy.setDisplaySize(48, 48);
+                this.physics.add.existing(enemy); // Enable physics body
+                enemy.body.setSize(48, 48);
+                enemy.body.setImmovable(true); // Immovable: Player cannot push them, acts as solid wall
+                this.enemiesGroup.add(enemy);
+                this.enemies[id] = enemy;
             }
             this.enemies[id].setPosition(data.x, data.y);
             // Visuals? Tint?
@@ -128,10 +148,6 @@ export class MultiplayerGameScene extends Phaser.Scene {
         for (const data of serverBullets) {
             activeIds.add(data.id);
             if (!this.bullets[data.id]) {
-                // Create
-                // Use texture 'bullet' - assume created in GameScene or Preloader
-                // But this scene is separate. Need to create texture?
-                // Reuse the primitive creation from GameScene?
                 if (!this.textures.exists('bullet')) {
                     const graphics = this.make.graphics({ x: 0, y: 0, add: false });
                     graphics.fillStyle(0xffffff);
@@ -146,49 +162,21 @@ export class MultiplayerGameScene extends Phaser.Scene {
 
         // Cleanup
         for (const id in this.bullets) {
-            // Need to convert id to number if stored strings, or just loose equality
-            // serverBullets is array. activeIds has it.
-            if (!activeIds.has(Number(id)) && !activeIds.has(String(id))) { // Safety for types
+            if (!activeIds.has(Number(id)) && !activeIds.has(String(id))) {
                 this.bullets[id].destroy();
                 delete this.bullets[id];
             }
         }
     }
 
-    createGridObstacles(seed) {
-        //seeded random
-        const seededRandom = (s) => {
-            return function () {
-                s = Math.sin(s) * 10000;
-                return s - Math.floor(s);
-            };
-        };
-        const rng = seededRandom(seed);
+    createObstaclesFromList(obstacles) {
+        if (!obstacles) return;
 
-        const GRID_SIZE = 64;
-        const COLS = Math.floor(1280 / GRID_SIZE); // 20
-        const ROWS = Math.floor(720 / GRID_SIZE); // 11
-        const SAFETY_COLS = 3;
+        for (const obs of obstacles) {
+            const centerX = obs.x + obs.width / 2;
+            const centerY = obs.y + obs.height / 2;
 
-        // Simplified Generation: Just Random for now, skipping flood fill validation for simplicity in MP demo
-        // (Assuming server validated it or we just trust random)
-        // User requirements: "Server generates map seed. Clients generate map locally using seed."
-        // We will just generate obstacles.
-
-        for (let y = 0; y < ROWS; y++) {
-            for (let x = 0; x < COLS; x++) {
-                if (x < SAFETY_COLS) continue;
-
-                if (rng() < 0.20) {
-                    const posX = x * GRID_SIZE + GRID_SIZE / 2;
-                    const posY = y * GRID_SIZE + GRID_SIZE / 2;
-
-                    // Visual only? Or Physical?
-                    // Server handles physics. We just render walls.
-                    // But walls need to be visible.
-                    this.createCompositeBlock(posX, posY, GRID_SIZE);
-                }
-            }
+            this.createCompositeBlock(centerX, centerY, obs.width);
         }
     }
 
@@ -202,8 +190,12 @@ export class MultiplayerGameScene extends Phaser.Scene {
             for (let c = 0; c < tilesPerSide; c++) {
                 const tx = startX + c * subSize;
                 const ty = startY + r * subSize;
+
                 const tile = this.add.rectangle(tx, ty, subSize, subSize, 0x666666);
                 tile.setStrokeStyle(1, 0x444444);
+
+                // Add to physics group
+                this.obstacles.add(tile);
             }
         }
     }

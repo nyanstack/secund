@@ -34,10 +34,20 @@ export class EnemyState {
         if (nearest) {
             const dx = nearest.x - this.x;
             const dy = nearest.y - this.y;
-            const angle = Math.atan2(dy, dx);
 
-            this.vx = Math.cos(angle) * this.speed;
-            this.vy = Math.sin(angle) * this.speed;
+            // Manhattan Movement: Prioritize larger distance axis
+            // Or just check if aligned?
+            // "Manhattan mode" usually means move on one axis at a time.
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+                // Move Horizontal
+                this.vx = (dx > 0 ? 1 : -1) * this.speed;
+                this.vy = 0;
+            } else {
+                // Move Vertical
+                this.vy = (dy > 0 ? 1 : -1) * this.speed;
+                this.vx = 0;
+            }
         } else {
             this.vx = 0;
             this.vy = 0;
